@@ -60,6 +60,60 @@
     }
     .length-picker button:hover { border-color: var(--accent); }
     .length-picker button.selected { border-color: var(--accent); background: #2a4060; }
+    .length-picker button.beaten {
+      border-color: var(--good);
+      box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.35);
+    }
+    .length-picker button.beaten.selected {
+      background: #1e3d32;
+    }
+    .stats-panel {
+      margin: 1rem 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .stats-panel h2 {
+      margin: 0;
+      padding: 0.55rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.15);
+      border-bottom: 1px solid var(--border);
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 2.5rem 1fr 1fr;
+      gap: 0.35rem 0.75rem;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .stats-grid .stats-head {
+      font-weight: 600;
+      color: var(--text);
+      padding-bottom: 0.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .stats-grid .len-cell {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .stats-grid .len-cell.beaten { color: var(--good); }
+    .stats-grid .record { font-variant-numeric: tabular-nums; }
+    .game-stats {
+      margin-top: 0.65rem;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .game-stats strong { color: var(--text); font-weight: 600; }
+    .game-stats .beaten-tag { color: var(--good); }
+
     .btn-primary {
       width: 100%;
       padding: 0.75rem;
@@ -168,6 +222,10 @@
     <section id="setup" class="card setup hidden-screen">
       <label for="length-picker">Word length (1–8 letters, Scrabble/WWF lexicon)</label>
       <div id="length-picker" class="length-picker" role="group" aria-label="Word length"></div>
+      <div class="stats-panel" id="setup-stats-panel">
+        <h2>Your records</h2>
+        <div class="stats-grid" id="setup-stats" aria-live="polite"></div>
+      </div>
       <p id="pool-hint" class="status"></p>
       <button type="button" class="btn-primary" id="start-btn" disabled>Start game</button>
     </section>
@@ -199,6 +257,7 @@
           <span id="meta-length"></span>
           <span id="meta-wrongs"></span>
         </div>
+        <div id="game-stats" class="game-stats" aria-live="polite"></div>
         <label class="debug-toggle"><input type="checkbox" id="debug-cb" /> Show adversary state</label>
         <div id="debug" class="debug"></div>
         <button type="button" class="btn-secondary" id="new-game-btn">New game (same length)</button>
@@ -257,6 +316,104 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
     let hung = false;
     let hangMessage = '';
     let statusMessage = '';
+    const STATS_KEY = 'adversarialHangmanStats';
+    let stats = {};
+
+    function emptyLengthStats() {
+      return { bestGuesses: null, bestHungPool: null };
+    }
+
+    function loadStats() {
+      try {
+        const raw = localStorage.getItem(STATS_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        stats = {};
+        for (let len = 1; len <= 8; len++) {
+          const key = String(len);
+          const entry = parsed[key] || {};
+          stats[key] = {
+            bestGuesses: Number.isFinite(entry.bestGuesses) ? entry.bestGuesses : null,
+            bestHungPool: Number.isFinite(entry.bestHungPool) ? entry.bestHungPool : null,
+          };
+        }
+      } catch {
+        stats = {};
+        for (let len = 1; len <= 8; len++) stats[String(len)] = emptyLengthStats();
+      }
+    }
+
+    function saveStats() {
+      localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+    }
+
+    function isBeaten(len) {
+      return Number.isFinite(stats[String(len)]?.bestGuesses);
+    }
+
+    function recordWin(length, guesses, beforeHung) {
+      if (!beforeHung) return false;
+      const key = String(length);
+      const entry = stats[key] || emptyLengthStats();
+      if (entry.bestGuesses === null || guesses < entry.bestGuesses) {
+        entry.bestGuesses = guesses;
+        stats[key] = entry;
+        saveStats();
+        return true;
+      }
+      return false;
+    }
+
+    function recordHung(length, poolSize) {
+      const key = String(length);
+      const entry = stats[key] || emptyLengthStats();
+      if (entry.bestHungPool === null || poolSize < entry.bestHungPool) {
+        entry.bestHungPool = poolSize;
+        stats[key] = entry;
+        saveStats();
+        return true;
+      }
+      return false;
+    }
+
+    function formatRecord(value, noneLabel) {
+      return Number.isFinite(value) ? String(value) : noneLabel;
+    }
+
+    function renderSetupStats() {
+      const grid = document.getElementById('setup-stats');
+      if (!grid) return;
+      const rows = [
+        '<span class="stats-head len-cell">Len</span>',
+        '<span class="stats-head">Fewest guesses</span>',
+        '<span class="stats-head">Lowest hung pool</span>',
+      ];
+      for (let len = 1; len <= 8; len++) {
+        const entry = stats[String(len)] || emptyLengthStats();
+        const beaten = isBeaten(len);
+        rows.push('<span class="len-cell' + (beaten ? ' beaten' : '') + '">' + len + (beaten ? ' ✓' : '') + '</span>');
+        rows.push('<span class="record">' + formatRecord(entry.bestGuesses, '—') + '</span>');
+        rows.push('<span class="record">' + formatRecord(entry.bestHungPool, '—') + '</span>');
+      }
+      grid.innerHTML = rows.join('');
+      document.querySelectorAll('#length-picker button').forEach((btn) => {
+        const len = Number(btn.dataset.length);
+        btn.classList.toggle('beaten', isBeaten(len));
+      });
+    }
+
+    function renderGameStats() {
+      const el = document.getElementById('game-stats');
+      if (!el || !selectedLength) return;
+      const entry = stats[String(selectedLength)] || emptyLengthStats();
+      const beaten = isBeaten(selectedLength);
+      const parts = [
+        '<strong>' + selectedLength + ' letters</strong>',
+        beaten ? '<span class="beaten-tag">Beaten</span>' : 'Not beaten yet',
+        'Fewest guesses: ' + formatRecord(entry.bestGuesses, '—'),
+        'Lowest hung pool: ' + formatRecord(entry.bestHungPool, '—'),
+      ];
+      el.innerHTML = parts.join(' · ');
+    }
 
     async function loadWords() {
       const bin = Uint8Array.from(atob(WORD_DATA_B64), c => c.charCodeAt(0));
@@ -397,6 +554,7 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
       updateGallows();
       renderKeyboard();
       refreshDebugPanel();
+      renderGameStats();
     }
 
     function pickHangMessage() {
@@ -445,7 +603,9 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
         won = true;
         const word = (lockedWord || candidates[0]).toUpperCase();
         const total = guessed.size;
+        const newRecord = recordWin(selectedLength, total, !hung);
         let msg = 'You won in ' + total + ' guess' + (total === 1 ? '' : 'es') + '! The word was ' + word + '.';
+        if (newRecord) msg += ' New fewest-guesses record for this length!';
         if (hung) msg += ' (You were hung after ' + MAX_WRONG + ' wrong letters.)';
         updateUI(msg);
         return;
@@ -453,7 +613,11 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
       if (wrongCount >= MAX_WRONG && !hung) {
         hung = true;
         hangMessage = pickHangMessage();
-        updateUI(hangMessage + ' Guesses so far: ' + guessed.size + '.');
+        const poolAtHung = candidates.length;
+        const newHungRecord = recordHung(selectedLength, poolAtHung);
+        let msg = hangMessage + ' Guesses so far: ' + guessed.size + '.';
+        if (newHungRecord) msg += ' New lowest hung-pool record (' + poolAtHung.toLocaleString() + ').';
+        updateUI(msg);
         return;
       }
       updateUI(statusAfterGuess());
@@ -500,8 +664,10 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
             count.toLocaleString() + ' words in the adversary pool';
           document.getElementById('start-btn').disabled = false;
         });
+        if (isBeaten(len)) btn.classList.add('beaten');
         picker.appendChild(btn);
       }
+      renderSetupStats();
     }
 
     document.getElementById('start-btn').addEventListener('click', () => {
@@ -513,9 +679,11 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
     document.getElementById('change-length-btn').addEventListener('click', () => {
       document.getElementById('game').classList.add('hidden-screen');
       document.getElementById('setup').classList.remove('hidden-screen');
+      renderSetupStats();
     });
     document.getElementById('debug-cb').addEventListener('change', () => updateUI());
 
+  loadStats();
   loadWords().then(() => {
       document.getElementById('loading').classList.add('hidden-screen');
       document.getElementById('setup').classList.remove('hidden-screen');

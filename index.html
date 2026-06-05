@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Adversarial Hangman</title>
+  <title>Hang Them All</title>
   <style>
     :root {
       --bg: #0f1419;
@@ -210,10 +210,9 @@
   </style>
 </head>
 <body>
-  <h1>Adversarial Hangman</h1>
+  <h1>Hang Them All</h1>
   <p class="subtitle">
-    Like <a href="https://qntm.org/absurdle" target="_blank" rel="noopener">Absurdle</a>, the game does not pick a word upfront.
-    It keeps every word that still fits your clues, then answers your guess in the way that prolongs the game longest.
+    Like Absurdle, the Hangman variant does not pick a word upfront. It keeps every word that still fits your clues, then answers your guess in the way that prolongs the game longest.
   </p>
 
   <main>
@@ -267,8 +266,7 @@
   </main>
 
   <footer>
-    Word list: ENABLE1 (Words With Friends) and OSPD (North American Scrabble, ≤8 letters), merged and bundled locally. Length&nbsp;1 uses <em>a</em> and <em>i</em> only.
-    Inspired by Absurdle and adversarial hangman write-ups.
+    Word list: ENABLE1 (Words With Friends) and OSPD (North American Scrabble, ≤8 letters).
   </footer>
 
   <script>
@@ -347,15 +345,15 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
     }
 
     function isBeaten(len) {
-      return Number.isFinite(stats[String(len)]?.bestGuesses);
+      const best = stats[String(len)]?.bestGuesses;
+      return Number.isFinite(best) && best < MAX_WRONG;
     }
 
-    function recordWin(length, guesses, beforeHung) {
-      if (!beforeHung) return false;
+    function recordWin(length, wrongGuesses) {
       const key = String(length);
       const entry = stats[key] || emptyLengthStats();
-      if (entry.bestGuesses === null || guesses < entry.bestGuesses) {
-        entry.bestGuesses = guesses;
+      if (entry.bestGuesses === null || wrongGuesses < entry.bestGuesses) {
+        entry.bestGuesses = wrongGuesses;
         stats[key] = entry;
         saveStats();
         return true;
@@ -384,7 +382,7 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
       if (!grid) return;
       const rows = [
         '<span class="stats-head len-cell">Len</span>',
-        '<span class="stats-head">Fewest guesses</span>',
+        '<span class="stats-head">Fewest wrong guesses</span>',
         '<span class="stats-head">Lowest hung pool</span>',
       ];
       for (let len = 1; len <= 8; len++) {
@@ -409,7 +407,7 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
       const parts = [
         '<strong>' + selectedLength + ' letters</strong>',
         beaten ? '<span class="beaten-tag">Beaten</span>' : 'Not beaten yet',
-        'Fewest guesses: ' + formatRecord(entry.bestGuesses, '—'),
+        'Fewest wrong guesses: ' + formatRecord(entry.bestGuesses, '—'),
         'Lowest hung pool: ' + formatRecord(entry.bestHungPool, '—'),
       ];
       el.innerHTML = parts.join(' · ');
@@ -603,9 +601,9 @@ const WORD_DATA_B64 = "H4sIAMRUIWoC/zydy9qELM+lz+Ud/5PeTfpU+uqBG0SrVHxBy8fqk29Y9
         won = true;
         const word = (lockedWord || candidates[0]).toUpperCase();
         const total = guessed.size;
-        const newRecord = recordWin(selectedLength, total, !hung);
+        const newRecord = recordWin(selectedLength, wrongCount);
         let msg = 'You won in ' + total + ' guess' + (total === 1 ? '' : 'es') + '! The word was ' + word + '.';
-        if (newRecord) msg += ' New fewest-guesses record for this length!';
+        if (newRecord) msg += ' New fewest wrong-guesses record for this length!';
         if (hung) msg += ' (You were hung after ' + MAX_WRONG + ' wrong letters.)';
         updateUI(msg);
         return;
